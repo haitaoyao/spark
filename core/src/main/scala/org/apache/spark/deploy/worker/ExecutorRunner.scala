@@ -114,6 +114,10 @@ private[spark] class ExecutorRunner(
     case other => other
   }
 
+  def substituteJavaOpts(argument: String): String = {
+    argument.replace("{{APP_ID}}", appId).replace("{{EXECUTOR_ID}}", execId.toString)
+  }
+
   def getCommandSeq = {
     val command = Command(
       appDesc.command.mainClass,
@@ -121,7 +125,7 @@ private[spark] class ExecutorRunner(
       appDesc.command.environment,
       appDesc.command.classPathEntries,
       appDesc.command.libraryPathEntries,
-      appDesc.command.javaOpts)
+      appDesc.command.javaOpts.map(substituteJavaOpts))
     CommandUtils.buildCommandSeq(command, memory, sparkHome.getAbsolutePath)
   }
 
