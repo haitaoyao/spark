@@ -69,7 +69,8 @@ private[spark] class ConnectionManager(
 
   private val selector = SelectorProvider.provider.openSelector()
 //  private val ackTimeoutMonitor = new Timer("AckTimeoutMonitor", true)
-  private val ackTimeoutMonitor = Executors.newScheduledThreadPool(2, Utils.namedThreadFactory("AckTimeoutMonitor"))
+  private val ackTimeoutMonitor = Executors.newScheduledThreadPool(2,
+    Utils.namedThreadFactory("AckTimeoutMonitor"))
 
   // default to 30 second timeout waiting for authentication
   private val authTimeout = conf.getInt("spark.core.connection.auth.wait.timeout", 30)
