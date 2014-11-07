@@ -25,7 +25,7 @@ import java.net._
 import java.util.{Timer, TimerTask}
 import java.util.concurrent.atomic.AtomicInteger
 
-import java.util.concurrent.{LinkedBlockingDeque, TimeUnit, ThreadPoolExecutor}
+import java.util.concurrent.{Executors, LinkedBlockingDeque, TimeUnit, ThreadPoolExecutor}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
@@ -68,7 +68,8 @@ private[spark] class ConnectionManager(
   }
 
   private val selector = SelectorProvider.provider.openSelector()
-  private val ackTimeoutMonitor = new Timer("AckTimeoutMonitor", true)
+//  private val ackTimeoutMonitor = new Timer("AckTimeoutMonitor", true)
+  private val ackTimeoutMonitor = Executors.newScheduledThreadPool(2, Utils.namedThreadFactory("AckTimeoutMonitor"))
 
   // default to 30 second timeout waiting for authentication
   private val authTimeout = conf.getInt("spark.core.connection.auth.wait.timeout", 30)
@@ -845,11 +846,11 @@ private[spark] class ConnectionManager(
   def sendMessageReliably(connectionManagerId: ConnectionManagerId, message: Message)
       : Future[Message] = {
     val promise = Promise[Message]()
-
-    val timeoutTask = new TimerTask {
+    val messageId: Int = message.id
+    val timeoutTask = new Runnable {
       override def run(): Unit = {
         messageStatuses.synchronized {
-          messageStatuses.remove(message.id).foreach ( s => {
+          messageStatuses.remove(messageId).foreach ( s => {
             promise.failure(
               new IOException("sendMessageReliably failed because ack " +
                 s"was not received within $ackTimeout sec"))
@@ -857,9 +858,10 @@ private[spark] class ConnectionManager(
         }
       }
     }
+    val timeoutTaskHandle = ackTimeoutMonitor.schedule(timeoutTask, ackTimeout, TimeUnit.SECONDS)
 
     val status = new MessageStatus(message, connectionManagerId, s => {
-      timeoutTask.cancel()
+      timeoutTaskHandle.cancel(true)
       s.ackMessage match {
         case None => // Indicates a failure where we either never sent or never got ACK'd
           promise.failure(new IOException("sendMessageReliably failed without being ACK'd"))
@@ -876,7 +878,7 @@ private[spark] class ConnectionManager(
       messageStatuses += ((message.id, status))
     }
 
-    ackTimeoutMonitor.schedule(timeoutTask, ackTimeout * 1000)
+
     sendMessage(connectionManagerId, message)
     promise.future
   }
@@ -886,7 +888,7 @@ private[spark] class ConnectionManager(
   }
 
   def stop() {
-    ackTimeoutMonitor.cancel()
+    ackTimeoutMonitor.shutdownNow()
     selectorThread.interrupt()
     selectorThread.join()
     selector.close()
